@@ -7,7 +7,7 @@ import time
 
 def top_large_files(dir, top = 5):
     start = time.time()
-    count = 0u
+    count = 0
     if not os.path.isdir(dir):
         print('Must be a folder path')
         return 

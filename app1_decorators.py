@@ -8,6 +8,7 @@
 import traceback 
 import time 
 import random
+from functools import wraps
 
 def logtraceback(func):
     def wrap(*args, **kwarg):
@@ -24,10 +25,32 @@ def test_trace():
     c=a/b
 
 
-
+class retry_class:
+    """
+        using wraps
+    """
+    def __init__(self, times=5):
+        self.times=times
+    
+    def __call__(self, func):
+        @wraps(func)
+        def inner(*args, **kwargs):
+            count = 0
+            while count < self.times:
+                try:
+                    print(args)
+                    print(kwargs)
+                    func(*args, **kwargs)
+                    print('Done')
+                except Exception:
+                    print(f'retrying {count}/{self.times} in 1 sec')
+                    count+=1
+                    time.sleep(1)
+        return inner 
+    
 
 def retry(times=5):
-    def wrap(func):
+    def wraper(func):
         def inner(*arg, **kwarg):
             count = 0
             while count < times:
@@ -39,10 +62,11 @@ def retry(times=5):
                     count+=1
                     time.sleep(1)
         return inner 
-    return wrap 
+    return wraper
 
-@retry(10)
-def test_retry():
+#@retry(10)
+@retry_class(5)
+def test_retry(a=1, b=2):
     while True :
         raise Exception ("test")
 
@@ -61,7 +85,7 @@ def test_time():
 
 
 if __name__ == "__main__":
-    test_trace()
-    #test_retry()
+    #test_trace()
+    test_retry()
     #test_time()
     
