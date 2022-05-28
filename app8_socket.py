@@ -5,10 +5,9 @@ test redirect client to socket
 from socket import *
 import datetime, time
 import sys
-import _thread, threading
-from select import select
-import selectors
-import types
+import _thread
+import select
+
 
 def server_simple(host='127.0.0.1', port=50008):
     sock = socket(AF_INET, SOCK_STREAM)
@@ -38,7 +37,7 @@ def server_select(host='127.0.0.1', port=50008):
     running = True
     def run():
         while running:
-            readable, writable, exp = select(inputs, outputs, [])
+            readable, writable, exp = select.select(inputs, outputs, [])
             for s in readable:
                 if s is server:
                     conn,addr = s.accept()
@@ -79,7 +78,66 @@ def server_select(host='127.0.0.1', port=50008):
             running = False
             break
 
+def server_epoll(host='127.0.0.1', port=50008):
+    """
+        Referenced from http://scotdoyle.com/python-epoll-howto.html
+    """
+    serversocket = socket(AF_INET, SOCK_STREAM)
+    serversocket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+    serversocket.bind((host, port))
+    serversocket.listen(1)
+    serversocket.setblocking(0)
 
+    ep = select.epoll() # not available on windows
+    ep.register(serversocket.fileno(), select.EPOLLIN)
+
+    try:
+        connections = {}
+        requests = {}
+        responses = {}
+        while True:
+            events = ep.poll(1)
+            for fileno, event in events:
+                if fileno == serversocket.fileno(): # new connection
+                    print ('New connection.')
+                    try:
+                        while True:
+                            connection, address = serversocket.accept()
+                            connection.setblocking(0)
+                            ep.register(connection.fileno(), select.EPOLLIN | select.EPOLLET)
+                            connections[connection.fileno()] = connection
+                            requests[connection.fileno()] = b''
+                            responses[connection.fileno()] = f'server time: {time.time()}'.encode()
+                    except :
+                        pass
+                elif event & select.EPOLLIN: # read client input
+                    try:
+                        while True:
+                            requests[fileno] += connections[fileno].recv(1024)
+                    except :
+                        pass
+                    ep.modify(fileno, select.EPOLLOUT | select.EPOLLET)
+                    print(f'Received : {requests[fileno].decode()}')
+                elif event & select.EPOLLOUT: # write output to client
+                    try:
+                        while len(responses[fileno]) > 0:
+                            byteswritten = connections[fileno].send(responses[fileno])
+                            responses[fileno] = responses[fileno][byteswritten:]
+                    except :
+                        pass
+                    if len(responses[fileno]) == 0:
+                        ep.modify(fileno, select.EPOLLET)
+                        connections[fileno].shutdown(SHUT_RDWR)
+                    print('Shutdown client connection')
+                elif event & select.EPOLLHUP: # close connection
+                    ep.unregister(fileno)
+                    connections[fileno].close()
+                    del connections[fileno]
+                    print('Deleted client connection')
+    finally:
+        ep.unregister(serversocket.fileno())
+        ep.close()
+        serversocket.close()
 
 def client_simple(msg, host='127.0.0.1', port=50008):
     sock = socket(AF_INET, SOCK_STREAM)
@@ -132,11 +190,13 @@ def run_simple(mode):
         client_simple(msg)
     elif mode == 3:
         server_select()
-    elif mode ==4:
+    elif mode == 4:
+        server_epoll()
+    elif mode ==5:
         client_keyboard()
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2 or sys.argv[1] not in ['1','2','3','4']:
+    if len(sys.argv) != 2 or sys.argv[1] not in ['1','2','3','4', '5']:
         print('invalid arguments !')
         exit()
 
